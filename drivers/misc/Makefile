@@ -126,3 +126,4 @@ obj-y				+= modem_shutdown.o
 obj-$(CONFIG_SONY_JPROBE_LMK) += idd_jprobe_lmk.o
 obj-$(CONFIG_SONY_JPROBE_PM) += idd_jprobe_pm.o
 obj-$(CONFIG_SONY_JPROBE_SUSPEND) += idd_jprobe_suspend.o
+obj-$(CONFIG_UID_CPUTIME) += uid_cputime.o
