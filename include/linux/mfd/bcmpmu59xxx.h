@@ -904,6 +904,7 @@ enum {
 	BCMPMU_SPA_EN = 1 << 0,
 	BCMPMU_ACLD_EN = 1 << 1,
 	BCMPMU_FG_VF_CTRL = 1 << 2,
+	BCMPMU_FG_LONG_EOC = 1 << 3,
 };
 /* Board id enum */
 enum {
