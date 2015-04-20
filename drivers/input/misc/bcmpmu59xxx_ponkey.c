@@ -43,6 +43,8 @@
 #include <linux/broadcom/kona_sec_wd.h>
 #endif
 
+int smart_rst_cfg = 0;
+
 struct bcmpmu_ponkey {
 	struct input_dev *idev;
 	struct bcmpmu59xxx *bcmpmu;
@@ -351,13 +353,15 @@ static int bcmpmu59xxx_ponkey_probe(struct platform_device *pdev)
 	int error;
 	u8 val;
 
+	smart_rst_cfg = 0;
+
 	pkey = (struct bcmpmu59xxx_pkey_pdata *)pdev->dev.platform_data;
 
 	ponkey = kzalloc(sizeof(struct bcmpmu_ponkey), GFP_KERNEL);
 	bcmpmu_pkey = ponkey;
 	if (!ponkey) {
 		pr_info("bcmpmu_ponkey:failed to alloc mem.\n");
-		return -ENOMEM;
+		BUG();
 	}
 	ponkey->idev = input_allocate_device();
 	if (!ponkey->idev) {
@@ -418,6 +422,8 @@ static int bcmpmu59xxx_ponkey_probe(struct platform_device *pdev)
 		goto out_input;
 	}
 
+	smart_rst_cfg = 1;
+
 	wake_lock_init(&bcmpmu_pkey->wake_lock,
 			WAKE_LOCK_SUSPEND, "PONKEY_press");
 
@@ -460,7 +466,7 @@ out:
 out_input:
 	kfree(ponkey);
 err:
-	return error;
+	BUG();
 }
 
 static int bcmpmu59xxx_ponkey_remove(struct platform_device *pdev)
