@@ -33,9 +33,10 @@
 #include <asm/fiq.h>
 #include <linux/broadcom/kona_sec_wd.h>
 #include <linux/dma-mapping.h>
+#include <linux/wakelock.h>
 
 #define SEC_EXIT_NORMAL			1
-#define SEC_WD_TAP_DELAY		12000
+#define SEC_WD_TAP_DELAY		60000
 #define SSAPI_ACTIVATE_SEC_WATCHDOG     0x0100000A
 #define SSAPI_ENABLE_SEC_WATCHDOG       0x01000007
 #define SSAPI_DISABLE_SEC_WATCHDOG      0x01000008
@@ -58,6 +59,7 @@ struct sec_wd_core_st {
 	struct notifier_block sec_wd_panic_block;
 	struct notifier_block sec_wd_reboot_block;
 	unsigned int sec_wd_enabled_mode;
+	struct wake_lock sec_wd_wake_lock;
 };
 
 struct sec_wd_tracker {
@@ -74,10 +76,13 @@ static void sec_wd_pat(struct work_struct *work)
 
 	if (sec_wd_trk->is_sec_wd_on == SEC_WD_ENABLE) {
 		sec_wd_trk->is_sec_pat_done = SEC_WD_PAT_BEGIN;
+		dsb();
 		secure_api_call(SSAPI_PAT_SEC_WATCHDOG, 0, 0, 0, 0);
+		dsb();
 		sec_wd_trk->is_sec_pat_done = SEC_WD_PAT_DONE;
 		queue_delayed_work_on(0, swdc->sec_wd_wq, &swdc->sec_wd_work,
 		msecs_to_jiffies(SEC_WD_TAP_DELAY));
+		dsb();
 		sec_wd_trk->is_sec_pat_done = SEC_WD_SET_NEXT_EVENT;
 	} else {
 		printk(KERN_ALERT "patting watchdog disable\n");
@@ -101,6 +106,25 @@ static void init_patter(void)
 	msecs_to_jiffies(SEC_WD_TAP_DELAY));
 }
 
+static int sec_wd_resume(struct platform_device *pdev)
+{
+	struct sec_wd_core_st *swdc = &sec_wd_core;
+	wake_lock(&swdc->sec_wd_wake_lock);
+	sec_wd_trk->is_sec_pat_done = SEC_WD_PAT_BEGIN;
+	dsb();
+	secure_api_call(SSAPI_PAT_SEC_WATCHDOG, 0, 0, 0, 0);
+	dsb();
+	sec_wd_trk->is_sec_pat_done = SEC_WD_SET_NEXT_EVENT;
+	wake_unlock(&swdc->sec_wd_wake_lock);
+	return 0;
+}
+
+static int sec_wd_suspend(struct platform_device *pdev)
+{
+	return 0;
+}
+
+
 void sec_wd_enable(void)
 {
 	int ret;
@@ -111,6 +135,7 @@ void sec_wd_enable(void)
 
 	ret = secure_api_call_local(SSAPI_ENABLE_SEC_WATCHDOG);
 	if (ret == 1) {
+		dsb();
 		sec_wd_trk->is_sec_wd_on = SEC_WD_ENABLE;
 		queue_delayed_work_on(0, swdc->sec_wd_wq, &swdc->sec_wd_work,
 		msecs_to_jiffies(SEC_WD_TAP_DELAY));
@@ -127,6 +152,11 @@ void sec_wd_disable(void)
 	if (sec_wd_trk->is_sec_wd_on == SEC_WD_DISABLE)
 		return;
 
+	sec_wd_trk->is_sec_pat_done = SEC_WD_PAT_BEGIN;
+	dsb();
+	secure_api_call_local(SSAPI_ENABLE_SEC_WATCHDOG);
+	dsb();
+	sec_wd_trk->is_sec_pat_done = SEC_WD_SET_NEXT_EVENT;
 	/* we do not need following piece of code
 	 * because disable watchdog is happening in
 	 * kona_mach_pm_enter.
@@ -138,7 +168,7 @@ void sec_wd_disable(void)
 		/* workq instance might be running, wait for it */
 		flush_workqueue(swdc->sec_wd_wq);
 	}
-#endif
+
 	/* at this point we are absolutely sure that,
 	no work function is running anywhere in the system.
 	this is the safest place to disabled watchdog. */
@@ -150,6 +180,7 @@ void sec_wd_disable(void)
 	} else {
 		printk(KERN_ALERT "___suspend:disabling secure watchdog...fail\n");
 	}
+#endif
 }
 EXPORT_SYMBOL(sec_wd_disable);
 
@@ -258,6 +289,8 @@ static int sec_wd_probe(struct platform_device *pdev)
 	swdc->sec_wd_reboot_block.priority = INT_MAX;
 	sec_wd_trk->is_sec_wd_on = SEC_WD_DISABLE;
 
+	wake_lock_init(&swdc->sec_wd_wake_lock, WAKE_LOCK_SUSPEND, "sec_wd_wake_lock");
+
 	atomic_notifier_chain_register(&panic_notifier_list,
 	&swdc->sec_wd_panic_block);
 	blocking_notifier_chain_register(&reboot_notifier_list,
@@ -316,6 +349,8 @@ static struct platform_driver sec_wd_pltfm_driver = {
 		   },
 	.probe = sec_wd_probe,
 	.remove = sec_wd_remove,
+	.suspend = sec_wd_suspend,
+	.resume = sec_wd_resume,
 };
 
 static int sec_wd_remove(struct platform_device *pdev)
