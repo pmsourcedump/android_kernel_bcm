@@ -1606,7 +1606,7 @@ static void n_tty_close(struct tty_struct *tty)
 
 	vfree(ldata->read_buf);
 	vfree(ldata->echo_buf);
-	kfree(ldata);
+	vfree(ldata);
 	tty->disc_data = NULL;
 }
 
@@ -1624,7 +1624,7 @@ static int n_tty_open(struct tty_struct *tty)
 {
 	struct n_tty_data *ldata;
 
-	ldata = kzalloc(sizeof(*ldata), GFP_KERNEL);
+	ldata = vzalloc(sizeof(*ldata));
 	if (!ldata)
 		goto err;
 
@@ -1657,7 +1657,7 @@ static int n_tty_open(struct tty_struct *tty)
 err_free_bufs:
 	vfree(ldata->read_buf);
 	vfree(ldata->echo_buf);
-	kfree(ldata);
+	vfree(ldata);
 err:
 	return -ENOMEM;
 }
