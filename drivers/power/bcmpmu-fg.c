@@ -59,7 +59,6 @@
 #define FG_FC_MAX_SAMPLES	2
 #define FG_FC_MAX_DEV	7
 #define FG_QF_DELTA	5
-#define FG_LONG_EOC_CNT	2
 
 #define PMU_FG_CURR_SMPL_SIGN_BIT_MASK		0x8000
 #define PMU_FG_CURR_SMPL_SIGN_BIT_SHIFT		15
@@ -279,8 +278,6 @@ struct bcmpmu_fg_status_flags {
 	bool init_ocv;
 	bool cv_entered;
 	bool cal_eoc_adj;
-	bool long_eoc_done;
-	bool cal_eoc_cnt_start;
 };
 
 #define BATTERY_STATUS_UNKNOWN(flag)	\
@@ -380,7 +377,6 @@ struct bcmpmu_fg_data {
 	int vfloat_lvl;
 	int vf_zone;
 	int vfloat_eoc;
-	int vfloat_long_eoc;
 	int low_cal_adj_fct;
 	int high_cal_adj_fct;
 	int cal_eoc_adj_fct;
@@ -409,8 +405,6 @@ struct bcmpmu_fg_data {
 	long int delta_volt;
 	int delta_cap_mas;
 	int cal_eoc_point;
-	int long_eoc_count;
-	int long_eoc_cnt_limit;
 
 	/* for debugging only */
 	int lock_cnt;
@@ -455,8 +449,6 @@ static inline int bcmpmu_fg_sample_rate_to_time(
 		enum bcmpmu_fg_sample_rate rate);
 static int bcmpmu_fg_register_notifiers(struct bcmpmu_fg_data *fg);
 static int bcmpmu_fg_get_temp_factor(struct bcmpmu_fg_data *fg);
-static void bcmpmu_fg_clear_long_eoc(struct bcmpmu_fg_data *fg);
-
 
 /**
  * Math - Utility functions
@@ -1942,7 +1934,7 @@ static void bcmpmu_fg_get_coulomb_counter(struct bcmpmu_fg_data *fg)
 
 	fg->capacity_info.capacity += capacity_adj;
 
-	if (fg->flags.cal_eoc_cnt_start &&
+	if (fg->flags.fully_charged &&
 			fg->flags.chrgr_connected) {
 		fg->capacity_info.cap_at_eoc =
 			clamp(fg->capacity_info.cap_at_eoc +
@@ -2485,7 +2477,7 @@ static int bcmpmu_fg_event_handler(struct notifier_block *nb,
 			fg->flags.prev_batt_status = fg->flags.batt_status;
 			fg->flags.batt_status = POWER_SUPPLY_STATUS_DISCHARGING;
 
-			if (fg->flags.cal_eoc_cnt_start) {
+			if (fg->flags.fully_charged) {
 				fg->delta_cap_mas =
 					fg->capacity_info.full_charge -
 					fg->capacity_info.cap_at_eoc;
@@ -2498,19 +2490,9 @@ static int bcmpmu_fg_event_handler(struct notifier_block *nb,
 					fg->flags.cal_eoc_adj = true;
 			}
 			fg->flags.fg_eoc = false;
-			fg->flags.cal_eoc_cnt_start = false;
 			fg->capacity_info.cap_at_eoc = 0;
 			fg->eoc_cap_delta = 0;
 			fg->flags.chrgr_connected = false;
-			if ((fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC) &&
-					fg->flags.long_eoc_done) {
-				bcmpmu_fg_set_vfloat_level(fg,
-					fg->bdata->volt_levels->vfloat_lvl);
-				pr_fg(FLOW,
-					"Long EOC: Vfloat back to normal!!\n");
-			}
-			if (fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC)
-				bcmpmu_fg_clear_long_eoc(fg);
 			poll_time = DISCHARGE_ALGO_POLL_TIME_MS;
 			cancel_n_resch_work = true;
 			if (fg->bcmpmu->flags & BCMPMU_FG_VF_CTRL)
@@ -2520,7 +2502,6 @@ static int bcmpmu_fg_event_handler(struct notifier_block *nb,
 			pr_fg(FLOW, "charger connected!!\n");
 			fg->flags.chrgr_connected = true;
 			fg->flags.fully_charged = false;
-			fg->flags.cal_eoc_cnt_start = false;
 			fg->flags.cal_eoc_adj = false;
 			fg->capacity_info.cap_at_eoc = 0;
 			bcmpmu_fg_reset_adj_factors(fg);
@@ -2923,8 +2904,6 @@ static void bcmpmu_fg_update_vf_zone(struct bcmpmu_fg_data *fg)
 			fg->vfloat_eoc = vfloat_eoc;
 			fg->eoc_current = eoc;
 			fg->eoc_cnt = 0;
-			if (fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC)
-				bcmpmu_fg_clear_long_eoc(fg);
 
 			pr_fg(FLOW, "--- Vfloat_lvl 0x%02x, EOC %u mA\n",
 					fg->vfloat_lvl, fg->eoc_current);
@@ -2933,30 +2912,6 @@ static void bcmpmu_fg_update_vf_zone(struct bcmpmu_fg_data *fg)
 		}
 		fg->vf_zone = zone_idx;
 	}
-}
-
-static void bcmpmu_fg_clear_long_eoc(struct bcmpmu_fg_data *fg)
-{
-	fg->flags.long_eoc_done = false;
-	fg->long_eoc_count = 0;
-	pr_fg(FLOW, "Long EOC: Cleared\n");
-}
-
-static int bcmpmu_fg_update_long_eoc_vf_lvl(struct bcmpmu_fg_data *fg)
-{
-	int ret = 0;
-
-	if (fg->vfloat_lvl == fg->bdata->volt_levels->vfloat_lvl) {
-		fg->vfloat_lvl = fg->bdata->volt_levels->long_eoc_vf_lvl;
-		bcmpmu_fg_set_vfloat_level(fg, fg->vfloat_lvl);
-		fg->flags.long_eoc_done = true;
-		pr_fg(FLOW, "Long EOC: Vfloat dropped to 0x%x level\n",
-			fg->bdata->volt_levels->long_eoc_vf_lvl);
-		return 1;
-	} else
-		bcmpmu_fg_clear_long_eoc(fg);
-
-	return ret;
 }
 
 static int bcmpmu_fg_sw_maint_charging_algo(struct bcmpmu_fg_data *fg)
@@ -2971,31 +2926,12 @@ static int bcmpmu_fg_sw_maint_charging_algo(struct bcmpmu_fg_data *fg)
 	bool eoc_condition = false;
 	if ((fg->bcmpmu->flags & BCMPMU_FG_VF_CTRL) && fg->bdata->vfd_sz)
 		bcmpmu_fg_update_vf_zone(fg);
-
-	if ((fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC) &&
-			(!flags->long_eoc_done) &&
-			(fg->long_eoc_count == fg->long_eoc_cnt_limit)) {
-		if (bcmpmu_fg_update_long_eoc_vf_lvl(fg))
-			pr_fg(FLOW, "Long EOC: Vfloat Changed\n");
-		else
-			pr_fg(ERROR,
-				"Long EOC: But Vfloat Not Changed\n");
-	}
-
-	if ((fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC) &&
-			flags->long_eoc_done) {
-		vfloat_volt = fg->bdata->volt_levels->long_eoc_high;
-		volt_thrld = vfloat_volt - volt_levels->long_eoc_vfloat_gap;
-	} else {
-		vfloat_volt = fg->vfloat_eoc;
-		volt_thrld = vfloat_volt - volt_levels->vfloat_gap;
-	}
-
+	vfloat_volt = fg->vfloat_eoc;
+	volt_thrld = vfloat_volt - volt_levels->vfloat_gap;
 	cap_percentage = fg->capacity_info.percentage;
 	volt = fg->adc_data.volt;
 	curr = fg->adc_data.curr_inst;
-	pr_fg(FLOW, "vfloat_volt = %d, volt_thrld = %d, curr=%d\n",
-		vfloat_volt, volt_thrld, curr);
+
 	if ((flags->fg_eoc) &&
 			(flags->batt_status == POWER_SUPPLY_STATUS_DISCHARGING))
 		flags->fg_eoc = false;
@@ -3063,7 +2999,6 @@ static int bcmpmu_fg_sw_maint_charging_algo(struct bcmpmu_fg_data *fg)
 		if (bcmpmu_fg_can_battery_be_full(fg)) {
 			pr_fg(FLOW, "sw_maint_chrgr: Fully Charged\n");
 			flags->fully_charged = true;
-			flags->cal_eoc_cnt_start = true;
 			fg->capacity_info.cap_at_eoc =
 				fg->capacity_info.capacity =
 					fg->capacity_info.full_charge;
@@ -3091,11 +3026,6 @@ static int bcmpmu_fg_sw_maint_charging_algo(struct bcmpmu_fg_data *fg)
 			pr_fg(FLOW, "sw_maint_chrgr: disable charging\n");
 			bcmpmu_chrgr_usb_en(fg->bcmpmu, 0);
 			bcmpmu_fg_update_psy(fg, false);
-			if (fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC) {
-				fg->long_eoc_count++;
-				pr_fg(FLOW, "fg->long_eoc_count = %d\n",
-					fg->long_eoc_count);
-			}
 		}
 	}
 exit:
@@ -3334,9 +3264,7 @@ static void bcmpmu_fg_charging_algo(struct bcmpmu_fg_data *fg)
 	 * but we will always show 100%
 	 */
 	if (fg->flags.fg_eoc) {
-		if (bcmpmu_fg_can_battery_be_full(fg) ||
-			((fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC)
-				&& fg->flags.long_eoc_done)) {
+		if (bcmpmu_fg_can_battery_be_full(fg)) {
 			fg->capacity_info.percentage = CAPACITY_PERCENTAGE_FULL;
 			fg->capacity_info.capacity =
 				fg->capacity_info.full_charge;
@@ -3669,7 +3597,7 @@ static void bcmpmu_fg_periodic_work(struct work_struct *work)
 			fg->sleep_current_ua[0]);
 	}
 
-	pr_fg(VERBOSE, "flags: %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+	pr_fg(VERBOSE, "flags: %d %d %d %d %d %d %d %d %d %d %d %d\n",
 			flags.batt_status,
 			flags.prev_batt_status,
 			flags.chrgr_connected,
@@ -3679,11 +3607,9 @@ static void bcmpmu_fg_periodic_work(struct work_struct *work)
 			flags.reschedule_work,
 			flags.eoc_chargr_en,
 			flags.calibration,
-			flags.cv_entered,
+			fg->flags.cv_entered,
 			flags.fully_charged,
-			flags.cal_eoc_adj,
-			flags.long_eoc_done,
-			flags.cal_eoc_cnt_start);
+			flags.cal_eoc_adj);
 
 #ifndef CONFIG_WD_TAPPER
 	if (wake_lock_active(&fg->fg_alarm_wake_lock))
@@ -4493,37 +4419,6 @@ static void bcmpmu_fg_debugfs_init(struct bcmpmu_fg_data *fg)
 	if (IS_ERR_OR_NULL(dentry_fg_file))
 		goto debugfs_clean;
 
-	dentry_fg_file = debugfs_create_u32("vfloat_gap",
-			DEBUG_FS_PERMISSIONS, dentry_fg_dir,
-			(u32 *)&fg->bdata->volt_levels->vfloat_gap);
-	if (IS_ERR_OR_NULL(dentry_fg_file))
-		goto debugfs_clean;
-
-	if (fg->bcmpmu->flags & BCMPMU_FG_LONG_EOC) {
-		dentry_fg_file = debugfs_create_u32("long_eoc_high",
-			DEBUG_FS_PERMISSIONS, dentry_fg_dir,
-			(u32 *)&fg->bdata->volt_levels->long_eoc_high);
-		if (IS_ERR_OR_NULL(dentry_fg_file))
-			goto debugfs_clean;
-
-		dentry_fg_file = debugfs_create_u32("long_eoc_vfloat_gap",
-			DEBUG_FS_PERMISSIONS, dentry_fg_dir,
-			(u32 *)&fg->bdata->volt_levels->long_eoc_vfloat_gap);
-		if (IS_ERR_OR_NULL(dentry_fg_file))
-			goto debugfs_clean;
-
-		dentry_fg_file = debugfs_create_u32("long_eoc_vf_lvl",
-			DEBUG_FS_PERMISSIONS, dentry_fg_dir,
-			(u32 *)&fg->bdata->volt_levels->long_eoc_vf_lvl);
-		if (IS_ERR_OR_NULL(dentry_fg_file))
-			goto debugfs_clean;
-
-		dentry_fg_file = debugfs_create_u32("long_eoc_cnt_limit",
-			DEBUG_FS_PERMISSIONS, dentry_fg_dir,
-			(u32 *)&fg->long_eoc_cnt_limit);
-		if (IS_ERR_OR_NULL(dentry_fg_file))
-			goto debugfs_clean;
-	}
 
 	return;
 
@@ -4746,9 +4641,6 @@ static int bcmpmu_fg_probe(struct platform_device *pdev)
 	fg->ibat_avg = FAKE_IBAT_INTIAL_AVG;
 	fg->flags.cv_entered = false;
 	fg->cal_eoc_point = FG_CAL_EOC_POINT;
-	fg->flags.long_eoc_done = false;
-	fg->flags.cal_eoc_cnt_start = false;
-	fg->long_eoc_cnt_limit = FG_LONG_EOC_CNT;
 
 	if (bcmpmu_fg_is_batt_present(fg)) {
 		pr_fg(INIT, "main battery present\n");

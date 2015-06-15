@@ -93,10 +93,6 @@
 #define SONY0_BATTERY_WARM_VFLOAT_REG 0x0E
 #define SONY0_BATTERY_WARM_VFLOAT 4165 /* mV */
 
-#define SONY0_BATTERY_LONG_EOC_VFLOAT_REG 0x10
-#define SONY0_BATTERY_LONG_EOC_MAX_MIN_VFLOAT 4215 /* mV */
-
-
 /* Temperature boundaries for charging:
  * Cold <= 5
  * 5 < Cool <= 12
@@ -128,10 +124,6 @@
 /* {min,typ,max} = {4.043, 4.084, 4.125} */
 #define SONY1_BATTERY_WARM_VFLOAT_REG 0x09
 #define SONY1_BATTERY_WARM_VFLOAT 4043 /* mV */
-
-#define SONY1_BATTERY_LONG_EOC_VFLOAT_REG 0x10
-#define SONY1_BATTERY_LONG_EOC_MAX_MIN_VFLOAT 4215 /* mV */
-
 
 /* Temperature boundaries for charging:
  * Cold <= 5
@@ -1496,9 +1488,6 @@ static struct bcmpmu_batt_volt_levels ys_05_volt_levels[BATT_MAX] = {
 		.vfloat_lvl = SONY0_BATTERY_MAX_VFLOAT_REG,
 		.vfloat_max = SONY0_BATTERY_MAX_VFLOAT_REG,
 		.vfloat_gap = 100, /* in mV */
-		.long_eoc_vf_lvl = SONY0_BATTERY_LONG_EOC_VFLOAT_REG,
-		.long_eoc_high = SONY0_BATTERY_LONG_EOC_MAX_MIN_VFLOAT,
-		.long_eoc_vfloat_gap = 100, /* in mV */
 	},
 	[BATT_1] = {
 		.critical = 3656, /* Not used in bcmpmu-fg.c,
@@ -1510,9 +1499,6 @@ static struct bcmpmu_batt_volt_levels ys_05_volt_levels[BATT_MAX] = {
 		.vfloat_lvl = SONY1_BATTERY_MAX_VFLOAT_REG,
 		.vfloat_max = SONY1_BATTERY_MAX_VFLOAT_REG,
 		.vfloat_gap = 100, /* in mV */
-		.long_eoc_vf_lvl = SONY1_BATTERY_LONG_EOC_VFLOAT_REG,
-		.long_eoc_high = SONY1_BATTERY_LONG_EOC_MAX_MIN_VFLOAT,
-		.long_eoc_vfloat_gap = 100, /* in mV */
 	},
 };
 
@@ -1918,7 +1904,7 @@ static struct bcmpmu59xxx_platform_data bcmpmu_i2c_pdata = {
 #ifdef CONFIG_CHARGER_BCMPMU_SPA
 .flags = (BCMPMU_SPA_EN | BCMPMU_ACLD_EN),
 #else
-.flags = BCMPMU_FG_VF_CTRL | BCMPMU_ACLD_EN | BCMPMU_FG_LONG_EOC,
+.flags = BCMPMU_FG_VF_CTRL | BCMPMU_ACLD_EN,
 #endif
 };
 

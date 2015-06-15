@@ -127,9 +127,6 @@ struct bcmpmu_batt_volt_levels {
 	int vfloat_lvl; /* float voltage in mV*/
 	int vfloat_max; /* maximum float voltage for protection */
 	int vfloat_gap;
-	int long_eoc_vf_lvl;
-	int long_eoc_high;
-	int long_eoc_vfloat_gap;
 };
 
 /**
