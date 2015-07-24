@@ -32,6 +32,7 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/memblock.h>
 #include <linux/mfd/bcm590xx/pmic.h>
 #include <linux/of_platform.h>
 #include <linux/of.h>
@@ -877,6 +878,52 @@ static struct platform_device *hawaii_devices[] __initdata = {
 
 };
 
+static unsigned long limit_mem;
+
+static int __init limit_mem_setup(char *param)
+{
+	limit_mem = memparse(param, NULL);
+	return 0;
+}
+early_param("limit_mem", limit_mem_setup);
+
+static void __init limit_mem_reserve(void)
+{
+	unsigned long to_remove;
+	unsigned long reserved_mem;
+	unsigned long i;
+	phys_addr_t base;
+
+	if (!limit_mem)
+		return;
+
+	reserved_mem = ALIGN(memblock.reserved.total_size, PAGE_SIZE);
+
+	to_remove = memblock.memory.total_size - reserved_mem - limit_mem;
+
+	pr_info("Limiting memory from %lu KB to to %lu kB by removing %lu kB\n",
+			(memblock.memory.total_size - reserved_mem) / 1024,
+			limit_mem / 1024,
+			to_remove / 1024);
+
+	/* First find as many highmem pages as possible */
+	for (i = 0; i < to_remove; i += PAGE_SIZE) {
+		base = memblock_find_in_range(memblock.current_limit,
+				MEMBLOCK_ALLOC_ANYWHERE, PAGE_SIZE, PAGE_SIZE);
+		if (!base)
+			break;
+		memblock_remove(base, PAGE_SIZE);
+	}
+	/* Then find as many lowmem 1M sections as possible */
+	for (; i < to_remove; i += SECTION_SIZE) {
+		base = memblock_find_in_range(0, MEMBLOCK_ALLOC_ACCESSIBLE,
+				SECTION_SIZE, SECTION_SIZE);
+		if (!base)
+			break;
+		memblock_remove(base, SECTION_SIZE);
+	}
+}
+
 static void __init hawaii_add_i2c_devices(void)
 {
 
@@ -1024,6 +1071,11 @@ static void __init hawaii_add_devices(void)
 
 }
 
+static void __init brooks_reserve(void)
+{
+	hawaii_reserve();
+	limit_mem_reserve();
+}
 
 static struct of_device_id hawaii_dt_match_table[] __initdata = {
 	{ .compatible = "simple-bus", },
@@ -1057,7 +1109,7 @@ DT_MACHINE_START(HAWAII, "Brooks 1.0")
 	.init_irq = kona_init_irq,
 	.init_time = java_timer_init,
 	.init_machine = java_init,
-	.reserve = hawaii_reserve,
+	.reserve = brooks_reserve,
 	.restart = hawaii_restart,
 	.dt_compat = java_dt_compat,
 MACHINE_END
