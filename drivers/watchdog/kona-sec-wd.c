@@ -34,6 +34,9 @@
 #include <linux/broadcom/kona_sec_wd.h>
 #include <linux/dma-mapping.h>
 #include <linux/wakelock.h>
+#include <linux/alarmtimer.h>
+#include <linux/ktime.h>
+#include <linux/suspend.h>
 
 #define SEC_EXIT_NORMAL			1
 #define SEC_WD_TAP_DELAY		60000
@@ -42,6 +45,7 @@
 #define SSAPI_DISABLE_SEC_WATCHDOG      0x01000008
 #define SSAPI_PAT_SEC_WATCHDOG		0x01000009
 
+#define SEC_WD_WAKE_TIMEOUT		55
 
 enum sec_wd_state_e {
 	SEC_WD_DISABLE = 0,
@@ -58,8 +62,11 @@ struct sec_wd_core_st {
 	struct delayed_work sec_wd_work;
 	struct notifier_block sec_wd_panic_block;
 	struct notifier_block sec_wd_reboot_block;
+	struct notifier_block sec_wd_pm_block;
 	unsigned int sec_wd_enabled_mode;
 	struct wake_lock sec_wd_wake_lock;
+	struct alarm alarm;
+	int alarm_timeout;
 };
 
 struct sec_wd_tracker {
@@ -106,25 +113,6 @@ static void init_patter(void)
 	msecs_to_jiffies(SEC_WD_TAP_DELAY));
 }
 
-static int sec_wd_resume(struct platform_device *pdev)
-{
-	struct sec_wd_core_st *swdc = &sec_wd_core;
-	wake_lock(&swdc->sec_wd_wake_lock);
-	sec_wd_trk->is_sec_pat_done = SEC_WD_PAT_BEGIN;
-	dsb();
-	secure_api_call(SSAPI_PAT_SEC_WATCHDOG, 0, 0, 0, 0);
-	dsb();
-	sec_wd_trk->is_sec_pat_done = SEC_WD_SET_NEXT_EVENT;
-	wake_unlock(&swdc->sec_wd_wake_lock);
-	return 0;
-}
-
-static int sec_wd_suspend(struct platform_device *pdev)
-{
-	return 0;
-}
-
-
 void sec_wd_enable(void)
 {
 	int ret;
@@ -144,6 +132,19 @@ void sec_wd_enable(void)
 	}
 }
 EXPORT_SYMBOL(sec_wd_enable);
+
+static enum alarmtimer_restart sec_wd_alarm_callback(
+		struct alarm *alarm, ktime_t now)
+{
+	struct sec_wd_core_st *swdc = &sec_wd_core;
+	printk(KERN_ALERT "_____SEC-WD wakeup\n");
+	sec_wd_trk->is_sec_pat_done = SEC_WD_PAT_BEGIN;
+	dsb();
+	secure_api_call(SSAPI_PAT_SEC_WATCHDOG, 0, 0, 0, 0);
+	dsb();
+	sec_wd_trk->is_sec_pat_done = SEC_WD_SET_NEXT_EVENT;
+	return ALARMTIMER_NORESTART;
+}
 
 void sec_wd_disable(void)
 {
@@ -168,7 +169,6 @@ void sec_wd_disable(void)
 		/* workq instance might be running, wait for it */
 		flush_workqueue(swdc->sec_wd_wq);
 	}
-
 	/* at this point we are absolutely sure that,
 	no work function is running anywhere in the system.
 	this is the safest place to disabled watchdog. */
@@ -183,6 +183,28 @@ void sec_wd_disable(void)
 #endif
 }
 EXPORT_SYMBOL(sec_wd_disable);
+
+static int sec_wd_pm_notify(struct notifier_block *nb, unsigned long event, void *dummy)
+{
+	ktime_t next;
+	ktime_t interval;
+	struct sec_wd_core_st *swdc = &sec_wd_core;
+
+	switch (event) {
+	case PM_HIBERNATION_PREPARE:
+	case PM_SUSPEND_PREPARE:
+		interval = ktime_set(swdc->alarm_timeout, 0);
+		next = ktime_add(ktime_get_real(), interval);
+		alarm_start(&swdc->alarm, next);
+		break;
+	case PM_POST_HIBERNATION:
+	case PM_POST_SUSPEND:
+		alarm_cancel(&swdc->alarm);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
 
 static int sec_wd_panic_event(struct notifier_block *this,
 		unsigned long event, void *ptr)
@@ -289,12 +311,17 @@ static int sec_wd_probe(struct platform_device *pdev)
 	swdc->sec_wd_reboot_block.priority = INT_MAX;
 	sec_wd_trk->is_sec_wd_on = SEC_WD_DISABLE;
 
+	swdc->sec_wd_pm_block.notifier_call = sec_wd_pm_notify;
+	swdc->sec_wd_pm_block.priority = INT_MAX;
+
 	wake_lock_init(&swdc->sec_wd_wake_lock, WAKE_LOCK_SUSPEND, "sec_wd_wake_lock");
 
 	atomic_notifier_chain_register(&panic_notifier_list,
 	&swdc->sec_wd_panic_block);
 	blocking_notifier_chain_register(&reboot_notifier_list,
 	&swdc->sec_wd_reboot_block);
+	register_pm_notifier(&swdc->sec_wd_pm_block);
+
 	swdc->sec_wd_wq = create_singlethread_workqueue("sec_wd_wq");
 	if (!(swdc->sec_wd_wq)) {
 		printk(KERN_ALERT "___sec_wd_probe:alloc workqueue failed\n");
@@ -309,6 +336,10 @@ static int sec_wd_probe(struct platform_device *pdev)
 	on_each_cpu(sec_wd_fiq_reg_setup, NULL, true);
 	set_fiq_handler(&sec_wd_fiq_handler,
 	&sec_wd_fiq_handler_end - &sec_wd_fiq_handler);
+
+	alarm_init(&swdc->alarm, ALARM_REALTIME, sec_wd_alarm_callback);
+	swdc->alarm_timeout = SEC_WD_WAKE_TIMEOUT;
+
 
 	printk(KERN_ALERT "_______sec_wd_probe succesfull_______\n");
 	return 0;
@@ -349,8 +380,6 @@ static struct platform_driver sec_wd_pltfm_driver = {
 		   },
 	.probe = sec_wd_probe,
 	.remove = sec_wd_remove,
-	.suspend = sec_wd_suspend,
-	.resume = sec_wd_resume,
 };
 
 static int sec_wd_remove(struct platform_device *pdev)
