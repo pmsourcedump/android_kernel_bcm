@@ -141,6 +141,9 @@
 
 
 #define NTC_ROOM_TEMP			250 /* 25C */
+
+#define WD_TAPPER_DEFAULT_TIMEOUT	55
+
 /**
  * Helper macros
  */
@@ -3238,7 +3241,7 @@ static void bcmpmu_fg_charging_algo(struct bcmpmu_fg_data *fg)
 	if (fg->discharge_state != DISCHARG_STATE_HIGH_BATT) {
 #ifdef CONFIG_WD_TAPPER
 		wd_tapper_update_timeout_req(&fg->wd_tap_node,
-				TAPPER_DEFAULT_TIMEOUT);
+				WD_TAPPER_DEFAULT_TIMEOUT);
 #endif
 		fg->discharge_state = DISCHARG_STATE_HIGH_BATT;
 		fg->bcmpmu->unmask_irq(fg->bcmpmu, PMU_IRQ_LOWBAT);
@@ -4612,7 +4615,7 @@ static int bcmpmu_fg_probe(struct platform_device *pdev)
 	mutex_init(&fg->mutex);
 #ifdef CONFIG_WD_TAPPER
 	ret = wd_tapper_add_timeout_req(&fg->wd_tap_node, "fg",
-			TAPPER_DEFAULT_TIMEOUT);
+			WD_TAPPER_DEFAULT_TIMEOUT);
 	if (ret) {
 		pr_fg(ERROR, "failed to register with wd-tapper\n");
 		goto destroy_workq;
