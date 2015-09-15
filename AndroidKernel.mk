@@ -10,6 +10,8 @@ KERNEL_MODULES_OUT := $(TARGET_OUT)/lib/modules
 KERNEL_IMG=$(KERNEL_OUT)/arch/arm/boot/Image
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 KERNEL_PATH := kernel/$(notdir $(patsubst %/,%,$(dir $(mkfile_path))))
+KERNEL_GCC_PATH := $(abspath prebuilts/gcc/linux-x86/arm/arm-eabi-4.8/bin)
+PATH := $(KERNEL_GCC_PATH):${PATH}
 
 ifeq ($(TARGET_USES_UNCOMPRESSED_KERNEL),true)
   $(info Using uncompressed kernel)
