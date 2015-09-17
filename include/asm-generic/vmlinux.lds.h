@@ -180,6 +180,8 @@
 /* .data section */
 #define DATA_DATA							\
 	*(.data)							\
+	*(.data.rel.local)							\
+	*(.data.rel)							\
 	*(.ref.data)							\
 	*(.data..shared_aligned) /* percpu related */			\
 	DEV_KEEP(init.data)						\
@@ -239,6 +241,7 @@
 	.rodata           : AT(ADDR(.rodata) - LOAD_OFFSET) {		\
 		VMLINUX_SYMBOL(__start_rodata) = .;			\
 		*(.rodata) *(.rodata.*)					\
+		*(.data.rel.ro.local) *(.data.rel.ro)					\
 		*(__vermagic)		/* Kernel version magic */	\
 		. = ALIGN(8);						\
 		VMLINUX_SYMBOL(__start___tracepoints_ptrs) = .;		\
