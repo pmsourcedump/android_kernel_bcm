@@ -66,8 +66,6 @@ static DEFINE_SPINLOCK(wl_lock);
 static u32 *i2c_log_buf_v;
 static u32 *i2c_log_buf_p;
 
-extern int smart_rst_cfg;
-
 /**
  * bcmpmu_i2c_log - log i2c data to un-cached buffer
  *
@@ -289,14 +287,6 @@ static int bcmpmu_i2c_pwrmgr_read(struct bcmpmu59xxx *bcmpmu, u32 reg, u8 * val)
 static int bcmpmu_i2c_pwrmgr_write(struct bcmpmu59xxx *bcmpmu, u32 reg, u8 val)
 {
 	int ret = 0;
-
-	if (smart_rst_cfg && (reg == PMU_REG_PONKEYCTRL6) \
-			&& !(val & PONKEY_SMART_RST_EN_MASK))
-		BUG();
-	if (smart_rst_cfg && (reg == PMU_REG_PONKEYCTRL8) \
-			&& ((val & PONKEY_TX_ACTION_MASK) \
-			!= (PKEY_ACTION_SMART_RESET << PONKEY_TX_ACTION_SHIFT)))
-		BUG();
 	bcmpmu_i2c_lock(bcmpmu);
 	ret = bcmpmu_i2c_try_write(bcmpmu, reg, val);
 	bcmpmu_i2c_unlock(bcmpmu);
