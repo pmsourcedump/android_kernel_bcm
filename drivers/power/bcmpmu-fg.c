@@ -3350,7 +3350,7 @@ static void bcmpmu_fg_discharging_algo(struct bcmpmu_fg_data *fg)
 			 */
 			bcmpmu_fg_enable_coulb_counter(fg, false);
 			fg->discharge_state = DISCHARG_STATE_CRIT_BATT;
-			poll_time = fg->pdata->poll_rate_crit_batt;
+			poll_time = 0;
 			config_tapper = true;
 		} else if (volt_avg <= volt_levels->low) {
 			int usable_cap =
@@ -3403,7 +3403,7 @@ static void bcmpmu_fg_discharging_algo(struct bcmpmu_fg_data *fg)
 						cap_info->percentage -
 						cap_cutoff;
 					fg->cutoff_cap_cnt = 0;
-					poll_time = fg->pdata->poll_rate_crit_batt;
+					poll_time = 0;
 				}
 				if (fg->crit_cutoff_delta <= 0) {
 					fg->crit_cutoff_delta = 0;
