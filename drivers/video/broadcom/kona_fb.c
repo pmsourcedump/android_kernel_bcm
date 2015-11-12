@@ -95,6 +95,7 @@
 #define KONA_IOCTL_GET_FB_IOVA			_IOR('F', 0x81, u32)
 
 #define SUSPEND_LINK_DELAY_MS 100
+#define SPECIAL_MODE_DELAY_MS 200
 
 static bool enable_corners = true;
 
@@ -162,6 +163,8 @@ struct kona_fb {
 	bool suspend_link;
 	struct delayed_work link_work;
 	struct wake_lock wlock;
+
+	struct delayed_work special_mode_work;
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
@@ -985,6 +988,19 @@ static void set_special_mode(struct kona_fb *fb) {
 	konafb_debug("Special mode ON\n");
 }
 
+static void delayed_set_special_mode(struct work_struct *work)
+{
+	struct delayed_work *dw = container_of(work, struct delayed_work, work);
+	struct kona_fb *fb = container_of(dw, struct kona_fb, special_mode_work);
+
+	mutex_lock(&fb->update_sem);
+	if (fb->display_info->delayed_special_mode) {
+		fb->display_info->delayed_special_mode = false;
+		set_special_mode(fb);
+	}
+	mutex_unlock(&fb->update_sem);
+}
+
 static ssize_t kona_fb_panel_name_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1058,11 +1074,13 @@ static ssize_t kona_fb_panel_mode_store(struct device *dev,
 			fb->display_info->delayed_special_mode = true;
 		} else {
 			konafb_debug("%s: set special mode NOW!\n", __func__);
-			set_special_mode(fb);
+			schedule_delayed_work(&fb->special_mode_work,
+					msecs_to_jiffies(SPECIAL_MODE_DELAY_MS));
 		}
 	} else {
 		/* Exit special mode */
 		fb->display_info->delayed_special_mode = false;
+		cancel_delayed_work_sync(&fb->special_mode_work);
 		if (fb->blank_state == KONA_FB_BLANK) {
 			/* If powerHAL exits special mode before system has
 			   has sent KONA_FB_UNBLANK we will end up here. In
@@ -1129,8 +1147,8 @@ static ssize_t kona_fb_backlight_brightness_store(struct device *dev,
 	mutex_lock(&fb->update_sem);
 	fb->display_info->brightness = brightness;
 	if (fb->display_info->delayed_special_mode && brightness == 0) {
-		set_special_mode(fb);
-		fb->display_info->delayed_special_mode = false;
+		schedule_delayed_work(&fb->special_mode_work,
+				msecs_to_jiffies(SPECIAL_MODE_DELAY_MS));
 	}
 	mutex_unlock(&fb->update_sem);
 exit:
@@ -2551,6 +2569,7 @@ static int __ref kona_fb_probe(struct platform_device *pdev)
 	complete(&fb->prev_buf_done_sem);
 	atomic_set(&fb->is_graphics_started, 0);
 	INIT_DELAYED_WORK(&fb->link_work, fb_suspend_link_work);
+	INIT_DELAYED_WORK(&fb->special_mode_work, delayed_set_special_mode);
 	wake_lock_init(&fb->wlock, WAKE_LOCK_SUSPEND, "dsi_link_wakelock");
 
 	ret = enable_display(fb);
