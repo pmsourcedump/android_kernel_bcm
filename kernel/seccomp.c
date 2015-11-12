@@ -31,6 +31,7 @@
 #include <linux/security.h>
 #include <linux/tracehook.h>
 #include <linux/uaccess.h>
+#include <linux/vmalloc.h>
 
 /**
  * struct seccomp_filter - container for seccomp BPF programs
@@ -394,8 +395,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 		return ERR_PTR(-EACCES);
 
 	/* Allocate a new seccomp_filter */
-	filter = kzalloc(sizeof(struct seccomp_filter) + fp_size,
-			 GFP_KERNEL|__GFP_NOWARN);
+	filter = vzalloc(sizeof(struct seccomp_filter) + fp_size);
 	if (!filter)
 		return ERR_PTR(-ENOMEM);;
 	atomic_set(&filter->usage, 1);
@@ -419,7 +419,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 	return filter;
 
 fail:
-	kfree(filter);
+	vfree(filter);
 	return ERR_PTR(ret);
 }
 
@@ -511,7 +511,7 @@ void get_seccomp_filter(struct task_struct *tsk)
 static inline void seccomp_filter_free(struct seccomp_filter *filter)
 {
 	if (filter) {
-		kfree(filter);
+		vfree(filter);
 	}
 }
 
