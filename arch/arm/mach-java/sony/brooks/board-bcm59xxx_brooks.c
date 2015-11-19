@@ -910,7 +910,7 @@ struct bcmpmu59xxx_regulator_init_data
 /*Ponkey platform data*/
 struct pkey_timer_act pkey_t3_action = {
 	.flags = PKEY_SMART_RST_PWR_EN,
-	.action = PKEY_ACTION_SMART_RESET,
+	.action = PKEY_ACTION_SHUTDOWN,
 	.timer_dly = PKEY_ACT_DELAY_1S,
 	.timer_deb = PKEY_ACT_DEB_4S,
 	.ctrl_params = PKEY_SR_DLY_30MS,
