@@ -251,7 +251,7 @@ static inline phys_addr_t memblock_alloc(phys_addr_t size, phys_addr_t align)
 static inline phys_addr_t memblock_alloc_new(phys_addr_t size, phys_addr_t align, 
 		phys_addr_t min_addr, phys_addr_t max_addr)
 {
-	return MEMBLOCK_ERROR;
+	return 0;
 }
 #endif /* CONFIG_HAVE_MEMBLOCK */
 

@@ -370,7 +370,9 @@ static void log_store(int facility, int level,
 
 		/* drop old messages until we have enough contiuous space */
 		log_first_idx = log_next(log_first_idx);
+#ifdef CONFIG_ARM
 		__cpuc_flush_dcache_area(&log_first_idx, sizeof(log_first_idx));
+#endif
 		log_first_seq++;
 	}
 
@@ -382,7 +384,9 @@ static void log_store(int facility, int level,
 		 */
 		memset(log_buf + log_next_idx, 0, sizeof(struct log));
 		log_next_idx = 0;
+#ifdef CONFIG_ARM
 		__cpuc_flush_dcache_area(&log_next_idx, sizeof(log_next_idx));
+#endif
 	}
 
 	/* fill message */
@@ -410,7 +414,9 @@ static void log_store(int facility, int level,
 
 	/* insert message */
 	log_next_idx += msg->len;
+#ifdef CONFIG_ARM
 	__cpuc_flush_dcache_area(&log_next_idx, sizeof(log_next_idx));
+#endif
 	log_next_seq++;
 }
 
@@ -1007,8 +1013,12 @@ static size_t print_prefix(const struct log *msg, bool syslog, char *buf)
 
 	len += prefix_bracket(buf ? buf + len : NULL);
 	len += print_time(msg->ts_nsec, buf ? buf + len : NULL);
+#ifdef CONFIG_PRINTK_CPU_ID
 	len += print_cpuid(msg->cpu_id, buf ? buf + len : NULL);
+#endif
+#ifdef CONFIG_PRINTK_PID
 	len += print_pid(msg->comm, msg->pid, buf ? buf + len : NULL);
+#endif
 	len += sufix_bracket(buf ? buf + len : NULL);
 	return len;
 }

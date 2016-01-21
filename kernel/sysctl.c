@@ -63,7 +63,9 @@
 #include <linux/binfmts.h>
 #include <linux/sched/sysctl.h>
 
+#ifdef CONFIG_ARM
 #include <asm/system_misc.h>
+#endif
 #include <asm/uaccess.h>
 #include <asm/processor.h>
 
