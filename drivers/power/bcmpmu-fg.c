@@ -3388,8 +3388,7 @@ static void bcmpmu_fg_discharging_algo(struct bcmpmu_fg_data *fg)
 		if ((cap_cutoff >= 0) &&
 			(cap_cutoff == fg->crit_cutoff_cap)) {
 			if (fg->crit_cutoff_cap != fg->crit_cutoff_cap_prev)
-				poll_time = min(500,
-						fg->pdata->poll_rate_crit_batt);
+				poll_time = fg->pdata->poll_rate_crit_batt;
 			if (++fg->cutoff_cap_cnt > CRIT_CUTOFF_CNT_THRD) {
 				if ((fg->crit_cutoff_cap_prev < 0) ||
 					(fg->crit_cutoff_cap <
